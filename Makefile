@@ -1,6 +1,6 @@
 .PHONY: style quality
 
-check_dirs := verl
+check_dirs := scripts verl
 
 quality:
 	ruff check $(check_dirs)

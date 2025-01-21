@@ -23,17 +23,17 @@ import logging
 
 import hydra
 import torch
-from tqdm import tqdm
 import torch.distributed as dist
 from accelerate import init_empty_weights
+from omegaconf import OmegaConf
 from tensordict import TensorDict
 from torch import nn
-from omegaconf import OmegaConf
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
-from torch.distributed.fsdp import CPUOffload, MixedPrecision, ShardingStrategy
+from torch.distributed.fsdp import CPUOffload, FullStateDictConfig, MixedPrecision, ShardingStrategy, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, DistributedSampler
+from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
 from verl.utils.dataset import sft_dataset
@@ -44,7 +44,7 @@ from verl.utils.tokenizer import build_tokenizer
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from verl.utils.tracking import Tracking
 
-from torch.distributed.fsdp import FullStateDictConfig, StateDictType
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
@@ -271,7 +271,11 @@ class FSDPSFTTrainer:
             self.train_sampler.set_epoch(epoch=epoch)
             self.val_sampler.set_epoch(epoch=epoch)
 
-            for data in tqdm(self.train_dataloader, desc=f"Train {epoch+1}/{self.config.trainer.total_epochs}", disable=(rank != 0)):
+            for data in tqdm(
+                self.train_dataloader,
+                desc=f"Train {epoch + 1}/{self.config.trainer.total_epochs}",
+                disable=(rank != 0),
+            ):
                 data = TensorDict(data, batch_size=self.config.data.total_batch_size).cuda()
                 metric = self.training_step(data)
                 if rank == 0:
@@ -281,7 +285,9 @@ class FSDPSFTTrainer:
                 global_step += 1
 
             val_losses = []
-            for data in tqdm(self.val_dataloader, desc=f"Eval {epoch+1}/{self.config.trainer.total_epochs}", disable=(rank != 0)):
+            for data in tqdm(
+                self.val_dataloader, desc=f"Eval {epoch + 1}/{self.config.trainer.total_epochs}", disable=(rank != 0)
+            ):
                 data = TensorDict(data, batch_size=self.config.data.micro_batch_size).cuda()
                 val_loss = self.validation_step(data)
                 val_losses.append(val_loss)

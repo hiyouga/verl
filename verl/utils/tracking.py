@@ -17,6 +17,7 @@ A unified tracking interface that supports logging data to different backend
 
 from typing import List, Union
 
+
 class Tracking:
     supported_backend = ["wandb"]
 
@@ -33,7 +34,6 @@ class Tracking:
 
             wandb.init(project=project_name, name=experiment_name, config=config)
             self.logger["wandb"] = wandb
-
 
     def log(self, data, step, backend=None):
         for default_backend, logger_instance in self.logger.items():

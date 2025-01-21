@@ -1,5 +1,5 @@
 data:
-  total_batch_size: 64
+  total_batch_size: 256
   micro_batch_size: 8  # this is also val batch size
   train_dataset: gsm8k
   val_dataset: gsm8k
@@ -9,7 +9,7 @@ model:
   model_path: Qwen/Qwen2-1.5B-Instruct
   enable_gradient_checkpointing: true
   fsdp_config:
-    sync_module_states: false
+    sync_module_states: true
     cpu_offload: false
     offload_params: false
     wrap_policy:
