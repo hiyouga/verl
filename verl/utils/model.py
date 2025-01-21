@@ -14,6 +14,7 @@
 """
 Utilities to create common models from huggingface
 """
+
 import os
 import warnings
 from typing import Dict, Type
@@ -21,12 +22,12 @@ from typing import Dict, Type
 import numpy as np
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, MistralForSequenceClassification
+from transformers import AutoConfig, AutoModelForCausalLM, MistralForSequenceClassification, PretrainedConfig
+
 from verl.models.registry import ModelRegistry
 
 
 class LambdaLayer(nn.Module):
-
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
@@ -47,8 +48,9 @@ def update_model_config(module_config, override_config_kwargs):
 def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> Dict:
     if override_config_kwargs is None:
         override_config_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), \
-        f'override_config_kwargs must be a dict, got {type(override_config_kwargs)}'
+    assert isinstance(override_config_kwargs, Dict), (
+        f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
+    )
     module_config = AutoConfig.from_pretrained(model_name, trust_remote_code=trust_remote_code)
     update_model_config(module_config, override_config_kwargs)
 
@@ -69,11 +71,12 @@ def create_huggingface_actor(model_name: str, override_config_kwargs=None, autom
         override_config_kwargs = {}
     if automodel_kwargs is None:
         automodel_kwargs = {}
-    assert isinstance(override_config_kwargs, Dict), \
-        f'override_config_kwargs must be a dict, got {type(override_config_kwargs)}'
-    module_config = get_huggingface_actor_config(model_name,
-                                                 override_config_kwargs,
-                                                 trust_remote_code=automodel_kwargs.get('trust_remote_code', False))
+    assert isinstance(override_config_kwargs, Dict), (
+        f"override_config_kwargs must be a dict, got {type(override_config_kwargs)}"
+    )
+    module_config = get_huggingface_actor_config(
+        model_name, override_config_kwargs, trust_remote_code=automodel_kwargs.get("trust_remote_code", False)
+    )
     module: nn.Module = AutoModelForCausalLM.from_config(module_config, **automodel_kwargs)
     return module
 
@@ -88,55 +91,58 @@ def create_huggingface_critic(model_name: str, override_config_kwargs=None, auto
     Returns:
 
     """
-    critic_module: nn.Module = create_huggingface_actor(model_name,
-                                                        override_config_kwargs=override_config_kwargs,
-                                                        automodel_kwargs=automodel_kwargs)
+    critic_module: nn.Module = create_huggingface_actor(
+        model_name, override_config_kwargs=override_config_kwargs, automodel_kwargs=automodel_kwargs
+    )
     if automodel_kwargs is None:
         automodel_kwargs = {}
-    torch_dtype = automodel_kwargs.get('torch_dtype', torch.float32)
-    critic_module.lm_head = nn.Sequential(nn.Linear(critic_module.config.hidden_size, 1, dtype=torch_dtype),
-                                          LambdaLayer(fn=squeeze))
+    torch_dtype = automodel_kwargs.get("torch_dtype", torch.float32)
+    critic_module.lm_head = nn.Sequential(
+        nn.Linear(critic_module.config.hidden_size, 1, dtype=torch_dtype), LambdaLayer(fn=squeeze)
+    )
     return critic_module
 
 
-def get_model_size(model: nn.Module, scale='auto'):
+def get_model_size(model: nn.Module, scale="auto"):
     n_params = sum(p.numel() for p in model.parameters())
 
-    if scale == 'auto':
+    if scale == "auto":
         if n_params > 1e9:
-            scale = 'B'
+            scale = "B"
         elif n_params > 1e6:
-            scale = 'M'
+            scale = "M"
         elif n_params > 1e3:
-            scale = 'K'
+            scale = "K"
         else:
-            scale = ''
+            scale = ""
 
-    if scale == 'B':
+    if scale == "B":
         n_params = n_params / 1e9
-    elif scale == 'M':
+    elif scale == "M":
         n_params = n_params / 1e6
-    elif scale == 'K':
+    elif scale == "K":
         n_params = n_params / 1e3
-    elif scale == '':
+    elif scale == "":
         pass
     else:
-        raise NotImplemented(f'Unknown scale {scale}')
+        raise NotImplementedError(f"Unknown scale {scale}")
 
     return n_params, scale
 
 
 def print_model_size(model: nn.Module, name: str = None):
-    n_params, scale = get_model_size(model, scale='auto')
+    n_params, scale = get_model_size(model, scale="auto")
     if name is None:
         name = model.__class__.__name__
-    print(f'{name} contains {n_params:.2f}{scale} parameters')
+    print(f"{name} contains {n_params:.2f}{scale} parameters")
 
 
-def create_random_mask(input_ids: torch.Tensor,
-                       max_ratio_of_valid_token: float,
-                       max_ratio_of_left_padding: float,
-                       min_ratio_of_valid_token: float = 0):
+def create_random_mask(
+    input_ids: torch.Tensor,
+    max_ratio_of_valid_token: float,
+    max_ratio_of_left_padding: float,
+    min_ratio_of_valid_token: float = 0,
+):
     """Create a random mask given input_ids. Support left padding and right padding.
     Process:
     - Sample valid token length
@@ -150,8 +156,8 @@ def create_random_mask(input_ids: torch.Tensor,
     Returns:
 
     """
-    assert max_ratio_of_valid_token > 0 and max_ratio_of_valid_token <= 1.
-    assert max_ratio_of_left_padding >= 0 and max_ratio_of_left_padding < 1.
+    assert max_ratio_of_valid_token > 0 and max_ratio_of_valid_token <= 1.0
+    assert max_ratio_of_left_padding >= 0 and max_ratio_of_left_padding < 1.0
     assert min_ratio_of_valid_token <= max_ratio_of_valid_token
 
     batch_size, sequence_length = input_ids.shape
@@ -178,9 +184,9 @@ def compute_position_id_with_mask(mask):
     return torch.clip(torch.cumsum(mask, dim=-1) - 1, min=0, max=None)
 
 
-def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
+def normalize_pp_vpp_params(params, num_hidden_layers, layer_name="layers"):
     """
-    Normalize the pp vpp params into a complete named parameters. 
+    Normalize the pp vpp params into a complete named parameters.
     This is useful when gather parameters from pp ranks and passed to a model without pp
 
     params: List[List[Dict[str, param]]]
@@ -205,18 +211,18 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
             layer_offset = layers_per_pp * pp_rank
 
         if layer_name in name:  # belong to an intermediate layer
-            split_name = name.split('.')
+            split_name = name.split(".")
             # find the num next to split_name
             for i, name in enumerate(split_name):
                 if name == layer_name:
                     break
             layer_num_idx = i + 1
             # check the name
-            assert len(split_name) >= layer_num_idx + 1, f'split_name = {split_name}'
-            assert split_name[layer_num_idx].isdigit(), f'split_name = {split_name}'
+            assert len(split_name) >= layer_num_idx + 1, f"split_name = {split_name}"
+            assert split_name[layer_num_idx].isdigit(), f"split_name = {split_name}"
             # increment layer_num_idx by layer_offset
             split_name[layer_num_idx] = str(int(split_name[layer_num_idx]) + layer_offset)
-            name = '.'.join(split_name)  # weight name in inference_tp_model
+            name = ".".join(split_name)  # weight name in inference_tp_model
         return name
 
     pp_size = len(params)
@@ -233,6 +239,7 @@ def normalize_pp_vpp_params(params, num_hidden_layers, layer_name='layers'):
 
 def get_parallel_model_from_config(config, megatron_config, pre_process=None, post_process=None, value=False):
     from megatron.core import ModelParallelConfig
+
     assert isinstance(megatron_config, ModelParallelConfig)
     model_class = _get_parallel_model_architecture_from_config(config, value)
 
@@ -246,36 +253,37 @@ def _get_parallel_model_architecture_from_config(config: PretrainedConfig, value
         model_cls = ModelRegistry.load_model_cls(arch, value)
         if model_cls is not None:
             return model_cls
-    raise ValueError(f"Model architectures {architectures} are not supported for now. "
-                     f"Supported architectures: {ModelRegistry.get_supported_archs()}")
+    raise ValueError(
+        f"Model architectures {architectures} are not supported for now. "
+        f"Supported architectures: {ModelRegistry.get_supported_archs()}"
+    )
 
 
-def load_megatron_model_weights(config,
-                                model_config,
-                                parallel_model,
-                                params_dtype,
-                                is_value_model=False,
-                                local_cache_path='~/.cache/verl/rlhf'):
+def load_megatron_model_weights(
+    config, model_config, parallel_model, params_dtype, is_value_model=False, local_cache_path="~/.cache/verl/rlhf"
+):
     assert hasattr(model_config, "architectures"), "architectures cannot be empty when load weight!"
     architectures = getattr(model_config, "architectures", [])
     local_cache_path = os.path.expanduser(local_cache_path)
 
     if config.model.path.startswith("hdfs:"):
         from verl.utils.fs import copy_local_path_from_hdfs
-        print(f'start download from {config.model.path}')
+
+        print(f"start download from {config.model.path}")
         local_model_path = copy_local_path_from_hdfs(src=config.model.path, cache_dir=local_cache_path)
-        print('finish download')
+        print("finish download")
     else:
         print(f"load from local dir {config.model.path}")
         local_model_path = config.model.path
 
     # TODO: to find a better way to load mistral7b-rm lm_head
-    if 'mistral7b-rm' in config.model.path:
+    if "mistral7b-rm" in config.model.path:
         model = MistralForSequenceClassification.from_pretrained(local_model_path)  # use score head instead of lm_head
         state_dict = model.state_dict()
-        state_dict['lm_head.weight'] = state_dict['score.weight']
-        state_dict['model.embed_tokens.weight'] = state_dict[
-            'model.embed_tokens.weight'][:32000]  # workaround, 32001 -> 32000
+        state_dict["lm_head.weight"] = state_dict["score.weight"]
+        state_dict["model.embed_tokens.weight"] = state_dict["model.embed_tokens.weight"][
+            :32000
+        ]  # workaround, 32001 -> 32000
         is_value_model = True
     else:
         with warnings.catch_warnings():
@@ -284,15 +292,18 @@ def load_megatron_model_weights(config,
         state_dict = model.state_dict()
 
     from verl.models.weight_loader_registry import get_weight_loader
-    print(f'before weight loader: architectures = {architectures}...')
+
+    print(f"before weight loader: architectures = {architectures}...")
     for arch in architectures:
-        print(f'call weight loader arch = {arch}, model config = {model.config}')
+        print(f"call weight loader arch = {arch}, model config = {model.config}")
         weight_loader = get_weight_loader(arch)
-        weight_loader(state_dict=state_dict,
-                      wrapped_models=parallel_model,
-                      config=model.config,
-                      params_dtype=params_dtype,
-                      is_value_model=is_value_model)
+        weight_loader(
+            state_dict=state_dict,
+            wrapped_models=parallel_model,
+            config=model.config,
+            params_dtype=params_dtype,
+            is_value_model=is_value_model,
+        )
 
 
 # pad input_ids_rmpad, cu_seqlens and max_seqlen_in_batch to be divisible by tp
@@ -324,7 +335,7 @@ def pad_packed_inputs(unpad_tokens: torch.Tensor, cu_seqlens, max_seqlen_in_batc
         elif unpad_tokens.ndim == 2:
             unpad_tokens = F.pad(unpad_tokens, (0, 0, 0, pad_size))
         else:
-            raise NotImplementedError(f'Padding dim {unpad_tokens.ndim()} is not supported')
+            raise NotImplementedError(f"Padding dim {unpad_tokens.ndim()} is not supported")
 
         cu_seqlens = F.pad(cu_seqlens, (0, 1), value=pad_size + cu_seqlens[-1])
         max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)

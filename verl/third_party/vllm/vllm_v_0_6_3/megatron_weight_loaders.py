@@ -17,19 +17,22 @@ from typing import Dict
 
 import torch
 import torch.nn as nn
-from vllm.model_executor.layers.linear import *
-from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead, VocabParallelEmbedding
+
+# from vllm.model_executor.layers.linear import *
 from vllm.model_executor.models import ModelRegistry
 
 
 # NOTE(shengguangming): replace the origin weight loader function in the class
 def parallel_weight_loader(self, param: torch.Tensor, loaded_weight: torch.Tensor) -> None:
     """Parallel Linear weight loader."""
-    assert (param.size() == loaded_weight.size(
-    )), "the parameter size is not align with the loaded weight size, param size: {}, loaded_weight size: {}".format(
-        param.size(), loaded_weight.size())
-    assert (param.data.dtype == loaded_weight.data.dtype
-           ), "if we want to shared weights, the data type should also be the same"
+    assert param.size() == loaded_weight.size(), (
+        "the parameter size is not align with the loaded weight size, param size: {}, loaded_weight size: {}".format(
+            param.size(), loaded_weight.size()
+        )
+    )
+    assert param.data.dtype == loaded_weight.data.dtype, (
+        "if we want to shared weights, the data type should also be the same"
+    )
 
     param.data = loaded_weight.data
 
@@ -37,8 +40,9 @@ def parallel_weight_loader(self, param: torch.Tensor, loaded_weight: torch.Tenso
 def default_weight_loader(param: torch.Tensor, loaded_weight: torch.Tensor) -> None:
     """Default weight loader."""
     assert param.size() == loaded_weight.size()
-    assert (param.data.dtype == loaded_weight.data.dtype
-           ), "if we want to shared weights, the data type should also be the same"
+    assert param.data.dtype == loaded_weight.data.dtype, (
+        "if we want to shared weights, the data type should also be the same"
+    )
 
     param.data = loaded_weight.data
 
@@ -83,7 +87,7 @@ def llama_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> 
             weight_loader(param, loaded_weight)
 
 
-def llama_megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+def _llama_megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     params_mapping = [
         # (megatron core gpt model name, vllm model name)
         ("embedding.word_embeddings", "model.embed_tokens"),
@@ -114,7 +118,7 @@ def llama_megatron_core_te_weight_loader(actor_weights: Dict, vllm_model: nn.Mod
             weight_loader(param, loaded_weight)
 
 
-def llama_megatron_core_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
+def _llama_megatron_core_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -> nn.Module:
     params_mapping = [
         # (megatron core gpt model name, vllm model name)
         ("embedding.word_embeddings", "model.embed_tokens"),
@@ -264,12 +268,12 @@ def mistral_megatron_weight_loader(actor_weights: Dict, vllm_model: nn.Module) -
 
 
 __LAYER_WEIGHT_MEGATRON_LOADER_REGISTRY__ = {
-    ColumnParallelLinear: parallel_weight_loader,
-    MergedColumnParallelLinear: parallel_weight_loader,
-    QKVParallelLinear: parallel_weight_loader,
-    RowParallelLinear: parallel_weight_loader,
-    VocabParallelEmbedding: parallel_weight_loader,
-    ParallelLMHead: parallel_weight_loader,
+    # ColumnParallelLinear: parallel_weight_loader,
+    # MergedColumnParallelLinear: parallel_weight_loader,
+    # QKVParallelLinear: parallel_weight_loader,
+    # RowParallelLinear: parallel_weight_loader,
+    # VocabParallelEmbedding: parallel_weight_loader,
+    # ParallelLMHead: parallel_weight_loader,
     # "ScaledActivation.weight_loader": ScaledActivation, # TODO(shengguangming): latest commit in vllm fix awq for this function and add load_weights
     # "default_weight_loader": default_weight_loader
 }
@@ -299,8 +303,10 @@ def load_megatron_weights(actor_weights: Dict, vllm_model: nn.Module):
 def _get_model_weight_loader(arch: str):
     if arch in __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__:
         return __MODEL_MEGATRON_WEIGHT_LOADER_REGISTRY__[arch]
-    raise ValueError(f"Model architectures {arch} are not supported for now. "
-                     f"Supported architectures: {ModelRegistry.get_supported_archs()}")
+    raise ValueError(
+        f"Model architectures {arch} are not supported for now. "
+        f"Supported architectures: {ModelRegistry.get_supported_archs()}"
+    )
 
 
 def update_megatron_weight_loader():

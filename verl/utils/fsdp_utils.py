@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import functools
+
+import torch
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers.trainer_pt_utils import get_module_class_from_name
-import torch
 
 
 def init_fn(x: torch.nn.Module):
@@ -27,7 +28,8 @@ def init_fn(x: torch.nn.Module):
 
 def get_init_weight_context_manager(use_meta_tensor=True):
     from accelerate import init_empty_weights
-    cpu_init_weights = lambda: torch.device('cpu')
+
+    cpu_init_weights = lambda: torch.device("cpu")
     if use_meta_tensor:
         init_context = init_empty_weights if torch.distributed.get_rank() != 0 else cpu_init_weights
     else:
@@ -41,13 +43,14 @@ def get_fsdp_wrap_policy(module, config=None):
     if config is None:
         config = {}
 
-    if config.get('disable', False):
+    if config.get("disable", False):
         return None
 
     default_transformer_cls_names_to_wrap = getattr(module, "_no_split_modules", None)
-    fsdp_transformer_layer_cls_to_wrap = config.get("transformer_layer_cls_to_wrap",
-                                                    default_transformer_cls_names_to_wrap)
-    min_num_params = config.get('min_num_params', 0)
+    fsdp_transformer_layer_cls_to_wrap = config.get(
+        "transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap
+    )
+    min_num_params = config.get("min_num_params", 0)
     auto_wrap_policy = None
     if min_num_params > 0:
         auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=min_num_params)
@@ -86,7 +89,7 @@ def offload_fsdp_param_and_grad(module, offload_grad=False):
     for _, param in module.named_parameters():
         if hasattr(param, "_local_shard"):
             param._local_shard = param._local_shard.to("cpu", non_blocking=True)
-        param.data = param.data.to('cpu', non_blocking=True)
+        param.data = param.data.to("cpu", non_blocking=True)
         if offload_grad and param.grad is not None:
             param.grad = param.grad.to("cpu", non_blocking=True)
     torch.cuda.empty_cache()
@@ -104,7 +107,7 @@ def load_fsdp_param_and_grad(module, device_id, load_grad=False):
 
 def offload_fsdp_optimizer(optimizer):
     for param_group in optimizer.param_groups:
-        for param in param_group['params']:
+        for param in param_group["params"]:
             state = optimizer.state[param]
             for key, value in state.items():
                 if isinstance(value, torch.Tensor):
@@ -114,7 +117,7 @@ def offload_fsdp_optimizer(optimizer):
 
 def load_fsdp_optimizer(optimizer, device_id):
     for param_group in optimizer.param_groups:
-        for param in param_group['params']:
+        for param in param_group["params"]:
             state = optimizer.state[param]
             for key, value in state.items():
                 if isinstance(value, torch.Tensor):

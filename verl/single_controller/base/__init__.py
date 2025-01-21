@@ -13,4 +13,4 @@
 # limitations under the License.
 
 from .worker import Worker
-from .worker_group import WorkerGroup, ClassWithInitArgs, ResourcePool
+from .worker_group import ClassWithInitArgs, ResourcePool, WorkerGroup

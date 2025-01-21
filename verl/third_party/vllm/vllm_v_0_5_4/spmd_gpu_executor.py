@@ -15,18 +15,26 @@
 
 import os
 import socket
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import torch
-import vllm.envs as envs
-from vllm.executor.executor_base import ExecutorBase, ExecutorAsyncBase
+from vllm.config import (
+    CacheConfig,
+    DeviceConfig,
+    LoRAConfig,
+    MultiModalConfig,
+    ParallelConfig,
+    PromptAdapterConfig,
+    SchedulerConfig,
+    SpeculativeConfig,
+)
+from vllm.executor.executor_base import ExecutorAsyncBase, ExecutorBase
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
-from vllm.sequence import SamplerOutput, ExecuteModelRequest
+from vllm.sequence import ExecuteModelRequest, SamplerOutput
 
-from vllm.config import (CacheConfig, DeviceConfig, LoRAConfig, MultiModalConfig, ParallelConfig, PromptAdapterConfig,
-                         SchedulerConfig, SpeculativeConfig)
-from .config import ModelConfig, LoadConfig
+from .config import LoadConfig, ModelConfig
+
 
 logger = init_logger(__name__)
 
@@ -36,7 +44,7 @@ class SPMDGPUExecutor(ExecutorBase):
 
     def __init__(
         self,
-        model, # pytorch model itself or its parameter dict
+        model,  # pytorch model itself or its parameter dict
         model_config: ModelConfig,
         cache_config: CacheConfig,
         parallel_config: ParallelConfig,
@@ -64,7 +72,7 @@ class SPMDGPUExecutor(ExecutorBase):
 
     # TODO(sgm): verl not support speculative decode now
     def _init_executor(self, model, distributed_init_method) -> None:
-        assert (not self.speculative_config), "Speculative decoding not yet supported for multi-GPU backend."
+        assert not self.speculative_config, "Speculative decoding not yet supported for multi-GPU backend."
 
         # Create the parallel worker for each GPU.
         self._init_workers_sp(model, distributed_init_method)
@@ -76,10 +84,10 @@ class SPMDGPUExecutor(ExecutorBase):
 
         rank = int(os.getenv("RANK"))
         local_rank = int(os.getenv("LOCAL_RANK"))
-        print(f'local rank {local_rank}')
+        print(f"local rank {local_rank}")
 
         # see https://github.com/NVIDIA/nccl/issues/1234
-        os.environ['NCCL_CUMEM_ENABLE'] = '0'
+        os.environ["NCCL_CUMEM_ENABLE"] = "0"
 
         self.worker = Worker(
             model,
@@ -125,8 +133,7 @@ class SPMDGPUExecutor(ExecutorBase):
         return num_gpu_blocks, num_cpu_blocks
 
     def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
-        """Initialize the KV cache in all workers.
-        """
+        """Initialize the KV cache in all workers."""
 
         # NOTE: We log here to avoid multiple logs when number of workers is
         # greater than one. We could log in the engine, but not all executors
@@ -138,12 +145,12 @@ class SPMDGPUExecutor(ExecutorBase):
 
         if torch.distributed.get_rank() == 0:
             print(
-                f'before init cache memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB'
+                f"before init cache memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB"
             )
         self.worker.initialize_cache(num_gpu_blocks=num_gpu_blocks, num_cpu_blocks=num_cpu_blocks)
         if torch.distributed.get_rank() == 0:
             print(
-                f'after init cache memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB'
+                f"after init cache memory allocated: {torch.cuda.memory_allocated() / 1e9}GB, reserved: {torch.cuda.memory_reserved() / 1e9}GB"
             )
 
     # NOTE(sgm): This will not profile & capture the model(CUDAGraph) when rebuilding KVCache
@@ -181,8 +188,7 @@ class SPMDGPUExecutor(ExecutorBase):
     from vllm.prompt_adapter.request import PromptAdapterRequest
 
     def add_prompt_adapter(self, prompt_adapter_request: PromptAdapterRequest) -> bool:
-        assert prompt_adapter_request.prompt_adapter_id > 0, \
-            "prompt_adapter_id must be greater than 0."
+        assert prompt_adapter_request.prompt_adapter_id > 0, "prompt_adapter_id must be greater than 0."
         return self.worker.add_prompt_adapter(prompt_adapter_request)
 
     def list_prompt_adapters(self) -> Set[int]:
@@ -193,13 +199,11 @@ class SPMDGPUExecutor(ExecutorBase):
         return self.worker.pin_lora(lora_id)
 
     def pin_prompt_adapter(self, prompt_adapter_id: int) -> bool:
-        assert prompt_adapter_id > 0, \
-                "prompt_adapter_id must be greater than 0."
+        assert prompt_adapter_id > 0, "prompt_adapter_id must be greater than 0."
         return self.worker.pin_prompt_adapter(prompt_adapter_id)
 
     def remove_prompt_adapter(self, prompt_adapter_id: int) -> bool:
-        assert prompt_adapter_id > 0, \
-            "prompt_adapter_id must be greater than 0."
+        assert prompt_adapter_id > 0, "prompt_adapter_id must be greater than 0."
         return self.worker.remove_prompt_adapter(prompt_adapter_id)
 
     # NOTE(sgm): add for verl
@@ -226,11 +230,11 @@ def initialize_cluster(
     """
 
     # Initialize cluster locally.
-    port = get_open_port()
+    # port = get_open_port()
     # We need to setup the distributed init method to make sure
     # the distributed megatron code (e.g., get world size) works correctly.
     # distributed_init_method = f"tcp://localhost:{port}"
-    distributed_init_method = 'env://'
+    distributed_init_method = "env://"
     return distributed_init_method
 
 
@@ -242,7 +246,6 @@ def get_open_port():
 
 # TODO(sgm): not implemented async executor yet
 class SPMDGPUExecutorAsync(SPMDGPUExecutor, ExecutorAsyncBase):
-
     async def execute_model_async(self, execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
         """Executes one model step on the given sequences."""
         raise NotImplementedError

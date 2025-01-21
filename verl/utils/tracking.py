@@ -14,43 +14,48 @@
 """
 A unified tracking interface that supports logging data to different backend
 """
+
 import dataclasses
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import List, Union, Dict, Any
+from typing import Any, Dict, List, Union
 
 
 class Tracking(object):
-    supported_backend = ['wandb', 'mlflow', 'console']
+    supported_backend = ["wandb", "mlflow", "console"]
 
-    def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = 'console', config=None):
+    def __init__(self, project_name, experiment_name, default_backend: Union[str, List[str]] = "console", config=None):
         if isinstance(default_backend, str):
             default_backend = [default_backend]
         for backend in default_backend:
-            if backend == 'tracking':
+            if backend == "tracking":
                 import warnings
+
                 warnings.warn("`tracking` logger is deprecated. use `wandb` instead.", DeprecationWarning)
             else:
-                assert backend in self.supported_backend, f'{backend} is not supported'
+                assert backend in self.supported_backend, f"{backend} is not supported"
 
         self.logger = {}
 
-        if 'tracking' in default_backend or 'wandb' in default_backend:
+        if "tracking" in default_backend or "wandb" in default_backend:
             import wandb
-            wandb.init(project=project_name, name=experiment_name, config=config)
-            self.logger['wandb'] = wandb
 
-        if 'mlflow' in default_backend:
+            wandb.init(project=project_name, name=experiment_name, config=config)
+            self.logger["wandb"] = wandb
+
+        if "mlflow" in default_backend:
             import mlflow
+
             mlflow.start_run(run_name=experiment_name)
             mlflow.log_params(_compute_mlflow_params_from_objects(config))
-            self.logger['mlflow'] = _MlflowLoggingAdapter()
+            self.logger["mlflow"] = _MlflowLoggingAdapter()
 
-        if 'console' in default_backend:
+        if "console" in default_backend:
             from verl.utils.logger.aggregate_logger import LocalLogger
+
             self.console_logger = LocalLogger(print_to_console=True)
-            self.logger['console'] = self.console_logger
+            self.logger["console"] = self.console_logger
 
     def log(self, data, step, backend=None):
         for default_backend, logger_instance in self.logger.items():
@@ -59,9 +64,9 @@ class Tracking(object):
 
 
 class _MlflowLoggingAdapter:
-
     def log(self, data, step):
         import mlflow
+
         mlflow.log_metrics(metrics=data, step=step)
 
 
@@ -69,7 +74,7 @@ def _compute_mlflow_params_from_objects(params) -> Dict[str, Any]:
     if params is None:
         return {}
 
-    return _flatten_dict(_transform_params_to_json_serializable(params, convert_list_to_dict=True), sep='/')
+    return _flatten_dict(_transform_params_to_json_serializable(params, convert_list_to_dict=True), sep="/")
 
 
 def _transform_params_to_json_serializable(x, convert_list_to_dict: bool):
@@ -81,7 +86,7 @@ def _transform_params_to_json_serializable(x, convert_list_to_dict: bool):
         return {k: _transform(v) for k, v in x.items()}
     if isinstance(x, list):
         if convert_list_to_dict:
-            return {'list_len': len(x)} | {f'{i}': _transform(v) for i, v in enumerate(x)}
+            return {"list_len": len(x)} | {f"{i}": _transform(v) for i, v in enumerate(x)}
         else:
             return [_transform(v) for v in x]
     if isinstance(x, Path):
@@ -94,6 +99,7 @@ def _transform_params_to_json_serializable(x, convert_list_to_dict: bool):
 
 def _flatten_dict(raw: Dict[str, Any], *, sep: str) -> Dict[str, Any]:
     import pandas as pd
-    ans = pd.json_normalize(raw, sep=sep).to_dict(orient='records')[0]
+
+    ans = pd.json_normalize(raw, sep=sep).to_dict(orient="records")[0]
     assert isinstance(ans, dict)
     return ans

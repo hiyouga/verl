@@ -19,4 +19,4 @@ def set_basic_config(level):
     """
     This function sets the global logging format and level. It will be called when import verl
     """
-    logging.basicConfig(format='%(levelname)s:%(asctime)s:%(message)s', level=level)
+    logging.basicConfig(format="%(levelname)s:%(asctime)s:%(message)s", level=level)

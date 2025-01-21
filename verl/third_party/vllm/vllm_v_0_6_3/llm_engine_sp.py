@@ -23,9 +23,7 @@ from vllm.config import (
     DecodingConfig,
     DeviceConfig,
     EngineConfig,
-    LoadConfig,
     LoRAConfig,
-    ModelConfig,
     ObservabilityConfig,
     ParallelConfig,
     PromptAdapterConfig,
@@ -33,7 +31,6 @@ from vllm.config import (
     SpeculativeConfig,
 )
 from vllm.core.scheduler import Scheduler
-from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.llm_engine import LLMEngine, SchedulerContext, SchedulerOutputState, _load_generation_config_dict
 from vllm.engine.metrics_types import StatLoggerBase
 from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
@@ -53,6 +50,7 @@ from vllm.version import __version__ as VLLM_VERSION
 from .arg_utils import EngineArgs
 from .config import LoadConfig, ModelConfig
 from .tokenizer import TokenizerGroup
+
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -198,7 +196,7 @@ class LLMEngine(LLMEngine):
         # Ensure that the function doesn't contain a reference to self,
         # to avoid engine GC issues
         def get_tokenizer_for_seq(sequence: Sequence) -> AnyTokenizer:
-            assert tokenizer_group, "tokenizer_group cannot be None, " "make sure skip_tokenizer_init is False"
+            assert tokenizer_group, "tokenizer_group cannot be None, make sure skip_tokenizer_init is False"
             return tokenizer_group.get_lora_tokenizer(sequence.lora_request)
 
         self.seq_counter = Counter()
@@ -289,7 +287,8 @@ class LLMEngine(LLMEngine):
                 lora_config,
                 parallel_config.pipeline_parallel_size,
                 self.async_callbacks[v_id] if model_config.use_async_output_proc else None,
-            ) for v_id in range(parallel_config.pipeline_parallel_size)
+            )
+            for v_id in range(parallel_config.pipeline_parallel_size)
         ]
 
         # Metric Logging.
@@ -304,14 +303,12 @@ class LLMEngine(LLMEngine):
                 from vllm.engine.metrics import LoggingStatLogger, PrometheusStatLogger
 
                 self.stat_loggers = {
-                    "logging":
-                        LoggingStatLogger(local_interval=_LOCAL_LOGGING_INTERVAL_SEC),
-                    "prometheus":
-                        PrometheusStatLogger(
-                            local_interval=_LOCAL_LOGGING_INTERVAL_SEC,
-                            labels=dict(model_name=model_config.served_model_name),
-                            max_model_len=self.model_config.max_model_len,
-                        ),
+                    "logging": LoggingStatLogger(local_interval=_LOCAL_LOGGING_INTERVAL_SEC),
+                    "prometheus": PrometheusStatLogger(
+                        local_interval=_LOCAL_LOGGING_INTERVAL_SEC,
+                        labels=dict(model_name=model_config.served_model_name),
+                        max_model_len=self.model_config.max_model_len,
+                    ),
                 }
                 self.stat_loggers["prometheus"].info("cache_config", self.cache_config)
 
@@ -335,9 +332,9 @@ class LLMEngine(LLMEngine):
 
     # TODO(sgm): add for verl but we may not tokenizer in Rollout
     def _init_tokenizer(self, tokenizer, **tokenizer_init_kwargs):
-        init_kwargs = dict(enable_lora=bool(self.lora_config),
-                           max_num_seqs=self.scheduler_config.max_num_seqs,
-                           max_input_length=None)
+        init_kwargs = dict(
+            enable_lora=bool(self.lora_config), max_num_seqs=self.scheduler_config.max_num_seqs, max_input_length=None
+        )
         init_kwargs.update(tokenizer_init_kwargs)
         return TokenizerGroup(tokenizer, **init_kwargs)
 
@@ -353,10 +350,11 @@ class LLMEngine(LLMEngine):
     # The GPUExecutor remove the Ray dependency
     @classmethod
     def _get_executor_cls(cls, engine_config: EngineConfig) -> Type[ExecutorBase]:
-        distributed_executor_backend = engine_config.parallel_config.distributed_executor_backend
+        # distributed_executor_backend = engine_config.parallel_config.distributed_executor_backend
         # Initialize the cluster and specify the executor class.]
-        assert (engine_config.device_config.device_type == "cuda"
-               ), "Currently, the vllm in verl only support running on GPU"
+        assert engine_config.device_config.device_type == "cuda", (
+            "Currently, the vllm in verl only support running on GPU"
+        )
 
         # print('Waiting for debugger'); import os,debugpy; debugpy.listen(('localhost', 5678 + int(os.getenv('RANK', '0')))); debugpy.wait_for_client()
         if engine_config.parallel_config.world_size == 1:
@@ -382,8 +380,9 @@ class LLMEngine(LLMEngine):
         engine_config = engine_args.create_engine_config()
         executor_class = cls._get_executor_cls(engine_config)
         # Initialize the cluster and specify the executor class.
-        assert (engine_config.device_config.device_type == "cuda"
-               ), "Currently, the vllm in verl only support running on GPU"
+        assert engine_config.device_config.device_type == "cuda", (
+            "Currently, the vllm in verl only support running on GPU"
+        )
 
         from .spmd_gpu_executor import SPMDGPUExecutor
 

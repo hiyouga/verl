@@ -12,20 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from omegaconf import ListConfig
 import os
 from typing import List, Union
 
-import pandas as pd
-
-import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, PreTrainedTokenizer
-from verl.utils.fs import copy_local_path_from_hdfs
+import pandas as pd
+import torch
+from omegaconf import ListConfig
+from torch.utils.data import Dataset
+from transformers import PreTrainedTokenizer
 
-from verl.utils.model import compute_position_id_with_mask
 import verl.utils.torch_functional as verl_F
+from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.model import compute_position_id_with_mask
 
 
 def collate_fn(data_list: list[dict]) -> dict:
@@ -60,16 +59,18 @@ class RLHFDataset(Dataset):
     We assume the dataset contains a column that contains prompts and other information
     """
 
-    def __init__(self,
-                 parquet_files: Union[str, List[str]],
-                 tokenizer: PreTrainedTokenizer,
-                 prompt_key='prompt',
-                 max_prompt_length=1024,
-                 filter_prompts=True,
-                 cache_dir='~/.cache/verl/rlhf',
-                 chat_template_func=None,
-                 return_raw_chat=False,
-                 truncation='error'):
+    def __init__(
+        self,
+        parquet_files: Union[str, List[str]],
+        tokenizer: PreTrainedTokenizer,
+        prompt_key="prompt",
+        max_prompt_length=1024,
+        filter_prompts=True,
+        cache_dir="~/.cache/verl/rlhf",
+        chat_template_func=None,
+        return_raw_chat=False,
+        truncation="error",
+    ):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
@@ -89,7 +90,6 @@ class RLHFDataset(Dataset):
         self._read_files_and_tokenize()
 
     def _download(self):
-        from verl.utils.fs import copy_local_path_from_hdfs
         for i, parquet_file in enumerate(self.parquet_files):
             self.parquet_files[i] = copy_local_path_from_hdfs(src=parquet_file, cache_dir=self.cache_dir)
 
@@ -101,16 +101,20 @@ class RLHFDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
 
-        print(f'original dataset len: {len(self.dataframe)}')
+        print(f"original dataset len: {len(self.dataframe)}")
 
         # filter out too long prompts
         tokenizer = self.tokenizer
         prompt_key = self.prompt_key
-        self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                             axis=1)]
+        self.dataframe = self.dataframe[
+            self.dataframe.apply(
+                lambda doc: len(tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True))
+                <= self.max_prompt_length,
+                axis=1,
+            )
+        ]
 
-        print(f'filter dataset len: {len(self.dataframe)}')
+        print(f"filter dataset len: {len(self.dataframe)}")
 
     def __len__(self):
         return len(self.dataframe)
@@ -123,23 +127,27 @@ class RLHFDataset(Dataset):
 
         chat = row_dict.pop(self.prompt_key)
 
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+        prompt_with_chat_template = self.tokenizer.apply_chat_template(
+            chat, add_generation_prompt=True, tokenize=False
+        )
 
-        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
-                                                                         tokenizer=self.tokenizer,
-                                                                         max_length=self.max_prompt_length,
-                                                                         pad_token_id=self.tokenizer.pad_token_id,
-                                                                         left_pad=True,
-                                                                         truncation=self.truncation)
+        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
+            prompt=prompt_with_chat_template,
+            tokenizer=self.tokenizer,
+            max_length=self.max_prompt_length,
+            pad_token_id=self.tokenizer.pad_token_id,
+            left_pad=True,
+            truncation=self.truncation,
+        )
 
         position_ids = compute_position_id_with_mask(attention_mask)
 
-        row_dict['input_ids'] = input_ids[0]
-        row_dict['attention_mask'] = attention_mask[0]
-        row_dict['position_ids'] = position_ids[0]
+        row_dict["input_ids"] = input_ids[0]
+        row_dict["attention_mask"] = attention_mask[0]
+        row_dict["position_ids"] = position_ids[0]
 
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat.tolist()
+            row_dict["raw_prompt"] = chat.tolist()
 
         return row_dict

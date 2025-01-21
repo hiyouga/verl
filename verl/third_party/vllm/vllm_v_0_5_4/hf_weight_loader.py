@@ -13,17 +13,14 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/models
 
-from typing import Dict, Union, Optional, Iterable, Tuple
+from typing import Dict
 
-import torch
 import torch.nn as nn
-
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 
 
 def update_hf_weight_loader():
-    print('no hf weight loader need to be updated')
+    print("no hf weight loader need to be updated")
     return
 
 

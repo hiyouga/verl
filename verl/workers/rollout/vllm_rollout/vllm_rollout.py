@@ -24,20 +24,23 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-from typing import List
+
 from contextlib import contextmanager
-from omegaconf import DictConfig
+from typing import List
+
 import torch
 import torch.distributed
+from omegaconf import DictConfig
 from tensordict import TensorDict
 from torch import nn
+from vllm import SamplingParams
 
 from verl import DataProto
-from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
-from verl.workers.rollout.base import BaseRollout
 from verl.third_party.vllm import LLM, vllm_version
 from verl.third_party.vllm import parallel_state as vllm_ps
-from vllm import SamplingParams
+from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
+from verl.workers.rollout.base import BaseRollout
+
 
 # TODO
 # 1. support pp in vllm
@@ -55,7 +58,6 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
 
 
 class vLLMRollout(BaseRollout):
-
     def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
@@ -68,36 +70,43 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
-        assert not (not config.enforce_eager and config.free_cache_engine), \
+        assert not (not config.enforce_eager and config.free_cache_engine), (
             "disable CUDA graph (enforce_eager = False) if free cache engine"
+        )
 
-        tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), \
+        tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
+        assert tensor_parallel_size <= torch.distributed.get_world_size(), (
             "tensor parallel size should be less than or equal to the world size"
+        )
 
-        if kwargs.get('train_tp', None) is not None:
+        if kwargs.get("train_tp", None) is not None:
             # deployed with megatron
             import os
-            os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
-            os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
-            train_tp = kwargs.get('train_tp', None)
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                  num_tp_per_train_tp=num_tp_per_train_tp)
 
-        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
+            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
+            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
+            train_tp = kwargs.get("train_tp", None)
+            num_tp_per_train_tp = train_tp // tensor_parallel_size
+            if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+                vllm_ps.initialize_parallel_state(
+                    tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp
+                )
+
+        assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, (
             "model context length should be greater than total sequence length"
-        self.inference_engine = LLM(actor_module,
-                                    tokenizer=tokenizer,
-                                    model_hf_config=model_hf_config,
-                                    tensor_parallel_size=tensor_parallel_size,
-                                    dtype=config.dtype,
-                                    enforce_eager=config.enforce_eager,
-                                    gpu_memory_utilization=config.gpu_memory_utilization,
-                                    skip_tokenizer_init=False,
-                                    max_model_len=config.prompt_length + config.response_length,
-                                    load_format=config.load_format)
+        )
+        self.inference_engine = LLM(
+            actor_module,
+            tokenizer=tokenizer,
+            model_hf_config=model_hf_config,
+            tensor_parallel_size=tensor_parallel_size,
+            dtype=config.dtype,
+            enforce_eager=config.enforce_eager,
+            gpu_memory_utilization=config.gpu_memory_utilization,
+            skip_tokenizer_init=False,
+            max_model_len=config.prompt_length + config.response_length,
+            load_format=config.load_format,
+        )
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.offload_model_weights()
@@ -109,8 +118,8 @@ class vLLMRollout(BaseRollout):
         )
 
         # we may detokenize the result all together later
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-            kwargs['detokenize'] = False
+        if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
+            kwargs["detokenize"] = False
 
         # supporting adding any sampling params from the config file
         for k in config.keys():
@@ -144,13 +153,13 @@ class vLLMRollout(BaseRollout):
         if self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
-        idx = prompts.batch['input_ids']  # (bs, prompt_length)
+        idx = prompts.batch["input_ids"]  # (bs, prompt_length)
         # left-padded attention_mask
-        attention_mask = prompts.batch['attention_mask']
-        position_ids = prompts.batch['position_ids']
+        attention_mask = prompts.batch["attention_mask"]
+        position_ids = prompts.batch["position_ids"]
 
         # used to construct attention_mask
-        eos_token_id = prompts.meta_info['eos_token_id']
+        eos_token_id = prompts.meta_info["eos_token_id"]
 
         batch_size = idx.size(0)
 
@@ -159,15 +168,15 @@ class vLLMRollout(BaseRollout):
         for i in range(batch_size):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
-        do_sample = prompts.meta_info.get('do_sample', True)
+        do_sample = prompts.meta_info.get("do_sample", True)
         if not do_sample:
             kwargs = {
-                'best_of': 1,
-                'top_p': 1.0,
-                'top_k': -1,
-                'min_p': 0.0,
-                'temperature': 0,
-                'n': 1  # if greedy, only 1 response
+                "best_of": 1,
+                "top_p": 1.0,
+                "top_k": -1,
+                "min_p": 0.0,
+                "temperature": 0,
+                "n": 1,  # if greedy, only 1 response
             }
 
         # users can customize different sampling_params at different run
@@ -176,7 +185,8 @@ class vLLMRollout(BaseRollout):
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
                 prompt_token_ids=idx_list,
-                use_tqdm=False)
+                use_tqdm=False,
+            )
 
         # TODO(sgm): disable logprob when recompute_log_prob is enable
         # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
@@ -204,20 +214,23 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[:, -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        response_attention_mask = get_eos_mask(
+            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
+        )
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
             {
-                'prompts': idx,
-                'responses': response,
-                'input_ids': seq,  # here input_ids become the whole sentences
+                "prompts": idx,
+                "responses": response,
+                "input_ids": seq,  # here input_ids become the whole sentences
                 # 'old_log_probs': log_probs, # we will recompute old log prob with actor
-                'attention_mask': attention_mask,
-                'position_ids': position_ids
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
             },
-            batch_size=batch_size)
+            batch_size=batch_size,
+        )
 
         # free vllm cache engine
         if self.config.free_cache_engine:

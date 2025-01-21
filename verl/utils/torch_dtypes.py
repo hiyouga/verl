@@ -15,9 +15,10 @@
 Adapted from Cruise.
 """
 
+from typing import Union
+
 import torch
 
-from typing import Union
 
 HALF_LIST = [16, "16", "fp16", "float16"]
 FLOAT_LIST = [32, "32", "fp32", "float32"]
@@ -73,10 +74,10 @@ class PrecisionType(object):
     @staticmethod
     def to_str(precision):
         if precision == torch.float16:
-            return 'fp16'
+            return "fp16"
         elif precision == torch.float32:
-            return 'fp32'
+            return "fp32"
         elif precision == torch.bfloat16:
-            return 'bf16'
+            return "bf16"
         else:
             raise RuntimeError(f"unexpected precision: {precision}")

@@ -4,6 +4,7 @@
 # https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 """Model and data parallel groups."""
+
 import os
 from typing import Optional
 
@@ -17,6 +18,7 @@ from vllm.distributed.parallel_state import (
     init_model_parallel_group,
 )
 from vllm.logger import init_logger
+
 
 logger = init_logger(__name__)
 """
@@ -86,12 +88,14 @@ def ensure_model_parallel_initialized(
     assert get_tensor_model_parallel_world_size() == tensor_model_parallel_size, (
         "tensor parallel group already initialized, but of unexpected size: "
         f"{get_tensor_model_parallel_world_size()=} vs. "
-        f"{tensor_model_parallel_size=}")
+        f"{tensor_model_parallel_size=}"
+    )
     pp_world_size = get_pp_group().world_size
     assert pp_world_size == pipeline_model_parallel_size, (
         "pipeline parallel group already initialized, but of unexpected size: "
         f"{pp_world_size=} vs. "
-        f"{pipeline_model_parallel_size=}")
+        f"{pipeline_model_parallel_size=}"
+    )
 
 
 # TODO(sgm): deviate from the v0.5.4, not pp now
@@ -123,7 +127,7 @@ def initialize_model_parallel_for_vllm(
 
     world_size: int = torch.distributed.get_world_size()
 
-    rank = torch.distributed.get_rank()
+    # rank = torch.distributed.get_rank()
 
     backend = torch.distributed.get_backend()
 
@@ -241,7 +245,7 @@ def initialize_model_parallel(
     #         f"pipeline_model_parallel_size ({pipeline_model_parallel_size})")
 
     num_tensor_model_parallel_groups: int = world_size // tensor_model_parallel_size
-    rank = torch.distributed.get_rank()
+    # rank = torch.distributed.get_rank()
     global _TP
     assert _TP is None, "tensor model parallel group is already initialized"
     group_ranks = []

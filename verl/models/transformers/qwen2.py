@@ -12,29 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import torch
 from typing import Optional, Tuple
 
-from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
+import torch
 from transformers.cache_utils import Cache
-from transformers.utils import logging
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-from verl.utils.ulysses import gather_heads_scatter_seq, gather_seq_scatter_heads, get_ulysses_sequence_parallel_world_size
+from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
+from transformers.utils import logging
+
+from verl.utils.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+)
+
 
 logger = logging.get_logger(__name__)
 
 
 def qwen2_flash_attn_forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: bool = False,
-        use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    self,
+    hidden_states: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_value: Optional[Cache] = None,
+    output_attentions: bool = False,
+    use_cache: bool = False,
+    cache_position: Optional[torch.LongTensor] = None,
+    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
 ):
     bsz, q_len, _ = hidden_states.size()
 
@@ -62,7 +67,8 @@ def qwen2_flash_attn_forward(
             "The attention layers in this model are transitioning from computing the RoPE embeddings internally "
             "through `position_ids` (2D tensor with the indexes of the tokens), to using externally computed "
             "`position_embeddings` (Tuple of tensors, containing cos and sin). In v4.46 `position_ids` will be "
-            "removed and `position_embeddings` will be mandatory.")
+            "removed and `position_embeddings` will be mandatory."
+        )
         cos, sin = self.rotary_emb(value_states, position_ids)
     else:
         cos, sin = position_embeddings
@@ -93,7 +99,8 @@ def qwen2_flash_attn_forward(
         logger.warning_once(
             f"The input hidden states seems to be silently casted in float32, this might be related to"
             f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
-            f" {target_dtype}.")
+            f" {target_dtype}."
+        )
 
         query_states = query_states.to(target_dtype)
         key_states = key_states.to(target_dtype)
@@ -104,8 +111,11 @@ def qwen2_flash_attn_forward(
     key_states = key_states.transpose(1, 2)
     value_states = value_states.transpose(1, 2)
 
-    if (self.config.use_sliding_window and getattr(self.config, "sliding_window", None) is not None and
-            self.layer_idx >= self.config.max_window_layers):
+    if (
+        self.config.use_sliding_window
+        and getattr(self.config, "sliding_window", None) is not None
+        and self.layer_idx >= self.config.max_window_layers
+    ):
         sliding_window = self.config.sliding_window
     else:
         sliding_window = None

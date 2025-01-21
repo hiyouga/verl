@@ -53,21 +53,28 @@ class FixedKLController:
 
 
 def get_kl_controller(config):
-    if config.critic.kl_ctrl.type == 'fixed':
+    if config.critic.kl_ctrl.type == "fixed":
         kl_ctrl = FixedKLController(kl_coef=config.critic.kl_ctrl.kl_coef)
-    elif config.critic.kl_ctrl.type == 'adaptive':
-        assert config.kl_ctrl.horizon > 0, f'horizon must be larger than 0. Got {config.critic.kl_ctrl.horizon}'
-        kl_ctrl = AdaptiveKLController(init_kl_coef=config.critic.kl_ctrl.kl_coef,
-                                       target_kl=config.critic.kl_ctrl.target_kl,
-                                       horizon=config.critic.kl_ctrl.horizon)
+    elif config.critic.kl_ctrl.type == "adaptive":
+        assert config.kl_ctrl.horizon > 0, f"horizon must be larger than 0. Got {config.critic.kl_ctrl.horizon}"
+        kl_ctrl = AdaptiveKLController(
+            init_kl_coef=config.critic.kl_ctrl.kl_coef,
+            target_kl=config.critic.kl_ctrl.target_kl,
+            horizon=config.critic.kl_ctrl.horizon,
+        )
     else:
-        raise ValueError('Unknown kl_ctrl type')
+        raise ValueError("Unknown kl_ctrl type")
 
     return kl_ctrl
 
 
-def compute_gae_advantage_return(token_level_rewards: torch.Tensor, values: torch.Tensor, eos_mask: torch.Tensor,
-                                 gamma: torch.Tensor, lam: torch.Tensor):
+def compute_gae_advantage_return(
+    token_level_rewards: torch.Tensor,
+    values: torch.Tensor,
+    eos_mask: torch.Tensor,
+    gamma: torch.Tensor,
+    lam: torch.Tensor,
+):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py
 
     Args:
@@ -183,8 +190,8 @@ def compute_value_loss(vpreds, returns, values, eos_mask, cliprange_value):
 
     """
     vpredclipped = verl_F.clip_by_value(vpreds, values - cliprange_value, values + cliprange_value)
-    vf_losses1 = (vpreds - returns)**2
-    vf_losses2 = (vpredclipped - returns)**2
+    vf_losses1 = (vpreds - returns) ** 2
+    vf_losses2 = (vpredclipped - returns) ** 2
     vf_loss = 0.5 * verl_F.masked_mean(torch.max(vf_losses1, vf_losses2), eos_mask)
     vf_clipfrac = verl_F.masked_mean(torch.gt(vf_losses2, vf_losses1).float(), eos_mask)
     return vf_loss, vf_clipfrac

@@ -36,6 +36,7 @@ from vllm.sequence import ExecuteModelRequest
 
 from .config import LoadConfig, ModelConfig
 
+
 logger = init_logger(__name__)
 
 
@@ -229,7 +230,7 @@ def initialize_cluster(
     """
 
     # Initialize cluster locally.
-    port = get_open_port()
+    # port = get_open_port()
     # We need to setup the distributed init method to make sure
     # the distributed megatron code (e.g., get world size) works correctly.
     # distributed_init_method = f"tcp://localhost:{port}"
@@ -245,7 +246,6 @@ def get_open_port():
 
 # TODO(sgm): not implemented async executor yet
 class SPMDGPUExecutorAsync(SPMDGPUExecutor, ExecutorAsyncBase):
-
     async def execute_model_async(self, execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
         """Executes one model step on the given sequences."""
         raise NotImplementedError

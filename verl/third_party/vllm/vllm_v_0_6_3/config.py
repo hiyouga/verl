@@ -25,6 +25,7 @@ from vllm.config import ModelConfig
 from vllm.logger import init_logger
 from vllm.utils import is_hip
 
+
 if TYPE_CHECKING:
     from vllm.model_executor.model_loader.loader import BaseModelLoader
 
@@ -42,7 +43,6 @@ class LoadFormat(str, enum.Enum):
 
 
 class ModelConfig(ModelConfig):
-
     def __init__(self, hf_config: PretrainedConfig, *args, **kwargs) -> None:
         super().__init__(model=hf_config._name_or_path, tokenizer=hf_config._name_or_path, *args, **kwargs)
         self.hf_config = hf_config
@@ -100,6 +100,8 @@ class LoadConfig:
             rocm_supported_load_format = [
                 f for f in LoadFormat.__members__ if (f not in rocm_not_supported_load_format)
             ]
-            raise ValueError(f"load format '{load_format}' is not supported in ROCm. "
-                             f"Supported load formats are "
-                             f"{rocm_supported_load_format}")
+            raise ValueError(
+                f"load format '{load_format}' is not supported in ROCm. "
+                f"Supported load formats are "
+                f"{rocm_supported_load_format}"
+            )

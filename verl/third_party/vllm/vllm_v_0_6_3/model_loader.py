@@ -13,13 +13,15 @@
 # limitations under the License.
 # Adapted from https://github.com/vllm-project/vllm/tree/main/vllm/model_executor/models
 """Utilities for selecting and loading models."""
+
 from typing import Dict, Optional, Union
 
 import torch
 import torch.nn as nn
 from transformers import PreTrainedModel
-from vllm.config import CacheConfig, DeviceConfig, LoadConfig, LoRAConfig, ModelConfig, ParallelConfig, SchedulerConfig
+from vllm.config import CacheConfig, DeviceConfig, LoRAConfig, ParallelConfig, SchedulerConfig
 from vllm.distributed.communication_op import tensor_model_parallel_all_gather
+from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.model_loader import BaseModelLoader
 from vllm.model_executor.model_loader.loader import _initialize_model
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
@@ -97,8 +99,11 @@ def get_model_loader(load_config: LoadConfig) -> BaseModelLoader:
         update_dtensor_weight_loader()
         return DummyModelLoader(load_config)
 
-    raise ValueError("load format not supported in verl: {}, only support {} and {}".format(
-        load_config.load_format, LoadFormat.MEGATRON, LoadFormat.HF))
+    raise ValueError(
+        "load format not supported in verl: {}, only support {} and {}".format(
+            load_config.load_format, LoadFormat.MEGATRON, LoadFormat.HF
+        )
+    )
 
 
 class DummyModelLoader(BaseModelLoader):
@@ -107,8 +112,7 @@ class DummyModelLoader(BaseModelLoader):
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
         if load_config.model_loader_extra_config:
-            raise ValueError(f"Model loader extra config is not supported for "
-                             f"load format {load_config.load_format}")
+            raise ValueError(f"Model loader extra config is not supported for load format {load_config.load_format}")
 
     def download_model(self, model_config: ModelConfig) -> None:
         pass
@@ -138,8 +142,7 @@ class MegatronLoader(BaseModelLoader):
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
         if load_config.model_loader_extra_config:
-            raise ValueError(f"Model loader extra config is not supported for "
-                             f"load format {load_config.load_format}")
+            raise ValueError(f"Model loader extra config is not supported for load format {load_config.load_format}")
 
     def download_model(self, model_config: ModelConfig) -> None:
         pass  # Nothing to download
@@ -169,8 +172,9 @@ class MegatronLoader(BaseModelLoader):
 
             # TODO(sgm): This is a hack, we need to register the load_weight() func for each model in vllm
             if isinstance(actor_model, nn.Module):
-                load_megatron_weights(actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)),
-                                      vllm_model=model)
+                load_megatron_weights(
+                    actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)), vllm_model=model
+                )
             else:
                 load_megatron_weights(actor_weights=actor_model, vllm_model=model)
 
@@ -193,8 +197,7 @@ class HFLoader(BaseModelLoader):
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
         if load_config.model_loader_extra_config:
-            raise ValueError(f"Model loader extra config is not supported for "
-                             f"load format {load_config.load_format}")
+            raise ValueError(f"Model loader extra config is not supported for load format {load_config.load_format}")
 
     def download_model(self, model_config: ModelConfig) -> None:
         pass  # Nothing to download
@@ -241,8 +244,7 @@ class DTensorLoader(BaseModelLoader):
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
         if load_config.model_loader_extra_config:
-            raise ValueError(f"Model loader extra config is not supported for "
-                             f"load format {load_config.load_format}")
+            raise ValueError(f"Model loader extra config is not supported for load format {load_config.load_format}")
 
     def download_model(self, model_config: ModelConfig) -> None:
         pass  # Nothing to download
@@ -272,8 +274,9 @@ class DTensorLoader(BaseModelLoader):
 
             # TODO(sgm): This is a hack, we need to register the load_weight() func for each model in vllm
             if isinstance(actor_model, nn.Module):
-                load_dtensor_weights(actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)),
-                                     vllm_model=model)
+                load_dtensor_weights(
+                    actor_weights=dict(actor_model.named_parameters(remove_duplicate=False)), vllm_model=model
+                )
             else:
                 load_dtensor_weights(actor_weights=actor_model, vllm_model=model)
 
@@ -294,8 +297,9 @@ class DTensorLoader(BaseModelLoader):
 # as they use ray, the _get_logits result will only need to return to the driver node,
 # therefore gather is enough. However, we use SPMD instead of a central scheduler,
 # all_gather is required (aligned with v0.2.6)
-def _get_logits(self, hidden_states: torch.Tensor, embedding: torch.Tensor,
-                embedding_bias: Optional[torch.Tensor]) -> torch.Tensor:
+def _get_logits(
+    self, hidden_states: torch.Tensor, embedding: torch.Tensor, embedding_bias: Optional[torch.Tensor]
+) -> torch.Tensor:
     # Get the logits for the next tokens.
     logits = torch.matmul(hidden_states, embedding.t())
     if embedding_bias is not None:
@@ -303,11 +307,8 @@ def _get_logits(self, hidden_states: torch.Tensor, embedding: torch.Tensor,
     logits = tensor_model_parallel_all_gather(logits)
     # Remove paddings in vocab (if any).
     if logits is not None:
-        logits = logits[:, :self.org_vocab_size]
+        logits = logits[:, : self.org_vocab_size]
     return logits
-
-
-from vllm.model_executor.layers.logits_processor import LogitsProcessor
 
 
 def logitsprocessor_init(
