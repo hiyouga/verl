@@ -4,11 +4,13 @@ saves/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.ruff_cache/
 *.py[cod]
 *$py.class
 dataset/*
 tensorflow/my_graph/*
 .idea/
+
 # C extensions
 *.so
 

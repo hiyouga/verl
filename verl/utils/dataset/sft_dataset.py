@@ -12,29 +12,53 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Literal
+from abc import abstractmethod
+from typing import Dict, List, Literal
 
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
+
+from ..data_processor import build_tokenizer
 
 
-class GSM8KDataset(Dataset):
-    def __init__(self, tokenizer: PreTrainedTokenizer, max_seq_len: int, split: Literal["train", "test"] = "train"):
-        self.tokenizer = tokenizer
+class PaddingDataset(Dataset):
+    def __init__(
+        self,
+        model_path: str,
+        max_seq_len: int,
+        truncation: Literal["error", "left", "right"] = "error",
+        split: Literal["train", "test"] = "train",
+    ):
+        self.model_path = model_path
         self.max_seq_len = max_seq_len
-        self._data = load_dataset("openai/gsm8k", "main", split=split)
+        self.truncation = truncation
+        self.split = split
+        self.tokenizer = build_tokenizer(self.model_path)
+        self.dataset = None
+        self._init_dataset()
+        assert self.dataset is not None, "Dataset was not initialized!"
+
+    @abstractmethod
+    def _init_dataset(self) -> None:
+        """
+        Initialize dataset here.
+        """
+        ...
+
+    @abstractmethod
+    def _build_messages(self, index: int) -> List[Dict[str, str]]:
+        """
+        Build the messages.
+        """
+        ...
 
     def __len__(self) -> int:
-        return len(self._data)
+        return len(self.dataset)
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
-        messages = [
-            {"role": "user", "content": self._data["question"][index]},
-            {"role": "assistant", "content": self._data["answer"][index]},
-        ]
+        messages = self._build_messages(index)
         prompt_str = self.tokenizer.apply_chat_template(messages[:-1], tokenize=False, add_generation_prompt=True)
         response_str = self.tokenizer.apply_chat_template(messages, tokenize=False)[len(prompt_str) :]
         if not response_str.rstrip().endswith(self.tokenizer.eos_token):
@@ -53,8 +77,40 @@ class GSM8KDataset(Dataset):
             "loss_mask": loss_mask,
         }
 
-        if len(input_ids) < self.max_seq_len:
+        if len(input_ids) == self.max_seq_len:
+            return model_inputs
+
+        if len(input_ids) < self.max_seq_len:  # right padding
             pad_length = self.max_seq_len - len(input_ids)
             return {k: F.pad(v, (0, pad_length)) for k, v in model_inputs.items()}
-        else:
+
+        if self.truncation == "error":
+            raise ValueError(f"Received lengthy example {len(input_ids)} > {self.max_seq_len}.")
+        elif self.truncation == "left":
             return {k: v[-self.max_seq_len :] for k, v in model_inputs.items()}
+        elif self.truncation == "right":
+            return {k: v[: self.max_seq_len] for k, v in model_inputs.items()}
+        else:
+            return NotImplementedError(f"Unknown truncation: {self.truncation}.")
+
+
+class GSM8KDataset(PaddingDataset):
+    def _init_dataset(self) -> None:
+        self.dataset = load_dataset("openai/gsm8k", "main", split=self.split)
+
+    def _build_messages(self, index: int) -> List[Dict[str, str]]:
+        return [
+            {"role": "user", "content": self.dataset["question"][index]},
+            {"role": "assistant", "content": self.dataset["answer"][index]},
+        ]
+
+
+class OpenO1Dataset(PaddingDataset):
+    def _init_dataset(self) -> None:
+        self.dataset = load_dataset("llamafactory/OpenO1-SFT", split=self.split)
+
+    def _build_messages(self, index: int) -> List[Dict[str, str]]:
+        return [
+            {"role": "user", "content": self.dataset["prompt"][index]},
+            {"role": "assistant", "content": self.dataset["response"][index]},
+        ]

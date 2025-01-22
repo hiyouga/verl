@@ -36,11 +36,11 @@ from torch.utils.data import DataLoader, DistributedSampler
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 
+from verl.utils.data_processor import build_tokenizer
 from verl.utils.dataset import sft_dataset
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.distributed import initialize_global_process_group
 from verl.utils.fsdp_utils import get_fsdp_wrap_policy
-from verl.utils.tokenizer import build_tokenizer
 from verl.utils.torch_functional import get_cosine_schedule_with_warmup
 from verl.utils.tracking import Tracking
 
@@ -73,12 +73,22 @@ class FSDPSFTTrainer:
 
     def _build_dataloader(self):
         if self.config.data.train_dataset == "gsm8k":
-            self.train_dataset = sft_dataset.GSM8KDataset(self.tokenizer, self.config.data.max_seq_len, "train")
+            self.train_dataset = sft_dataset.GSM8KDataset(
+                self.config.model.model_path, self.config.data.max_seq_len, self.config.data.truncation, "train"
+            )
+        elif self.config.data.train_dataset == "openo1":
+            self.train_dataset = sft_dataset.OpenO1Dataset(
+                self.config.model.model_path, self.config.data.max_seq_len, self.config.data.truncation, "train"
+            )
         else:
             raise NotImplementedError(f"{self.config.data.train_dataset} was not found.")
 
-        if self.config.data.val_dataset == "gsm8k":
-            self.val_dataset = sft_dataset.GSM8KDataset(self.tokenizer, self.config.data.max_seq_len, "test")
+        if self.config.data.val_dataset is None:
+            self.val_dataset = None
+        elif self.config.data.val_dataset == "gsm8k":
+            self.val_dataset = sft_dataset.GSM8KDataset(
+                self.config.model.model_path, self.config.data.max_seq_len, self.config.data.truncation, "test"
+            )
         else:
             raise NotImplementedError(f"{self.config.data.val_dataset} was not found.")
 
@@ -92,17 +102,22 @@ class FSDPSFTTrainer:
             dataset=self.train_dataset,
             batch_size=self.config.data.total_batch_size,
             sampler=self.train_sampler,
+            num_workers=8,
+            pin_memory=True,
             drop_last=True,
         )
-        self.val_sampler = DistributedSampler(
-            self.val_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True
-        )
-        self.val_dataloader = DataLoader(
-            dataset=self.val_dataset,
-            batch_size=self.config.data.micro_batch_size,
-            sampler=self.val_sampler,
-            drop_last=True,
-        )
+        if self.val_dataset is not None:
+            self.val_sampler = DistributedSampler(
+                self.val_dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True
+            )
+            self.val_dataloader = DataLoader(
+                dataset=self.val_dataset,
+                batch_size=self.config.data.micro_batch_size,
+                sampler=self.val_sampler,
+                num_workers=8,
+                pin_memory=True,
+                drop_last=True,
+            )
 
     def _build_model_optimizer(self):
         log_gpu_memory_usage("Before model allocation", logger=logger)
@@ -115,7 +130,7 @@ class FSDPSFTTrainer:
                 fsdp_kwargs["param_init_fn"] = None
                 empty_init = False
             else:
-                fsdp_kwargs["param_init_fn"] = lambda module: module.to_empty(device="cuda")
+                fsdp_kwargs["param_init_fn"] = lambda module: module.to_empty(device="cuda", recurse=False)
                 empty_init = True
         else:
             empty_init = False
@@ -269,13 +284,15 @@ class FSDPSFTTrainer:
         global_step = 0
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
-            self.val_sampler.set_epoch(epoch=epoch)
-
             for data in tqdm(
                 self.train_dataloader,
                 desc=f"Train {epoch + 1}/{self.config.trainer.total_epochs}",
                 disable=(rank != 0),
             ):
+                if global_step == 0:
+                    for key, value in data.items():
+                        print(f"[rank {rank}]: {key}'s shape: {value.shape}, device: {value.device}, {value}")
+
                 data = TensorDict(data, batch_size=self.config.data.total_batch_size).cuda()
                 metric = self.training_step(data)
                 if rank == 0:
@@ -284,18 +301,22 @@ class FSDPSFTTrainer:
 
                 global_step += 1
 
-            val_losses = []
-            for data in tqdm(
-                self.val_dataloader, desc=f"Eval {epoch + 1}/{self.config.trainer.total_epochs}", disable=(rank != 0)
-            ):
-                data = TensorDict(data, batch_size=self.config.data.micro_batch_size).cuda()
-                val_loss = self.validation_step(data)
-                val_losses.append(val_loss)
+            if self.val_dataset is not None:
+                self.val_sampler.set_epoch(epoch=epoch)
+                val_losses = []
+                for data in tqdm(
+                    self.val_dataloader,
+                    desc=f"Eval {epoch + 1}/{self.config.trainer.total_epochs}",
+                    disable=(rank != 0),
+                ):
+                    data = TensorDict(data, batch_size=self.config.data.micro_batch_size).cuda()
+                    val_loss = self.validation_step(data)
+                    val_losses.append(val_loss)
 
-            if rank == 0:
-                val_loss = torch.mean(torch.stack(val_losses)).item()
-                print(f"Eval loss: {val_loss:.4f}")
-                tracking.log(data={"val/loss": val_loss}, step=global_step)
+                if rank == 0:
+                    val_loss = torch.mean(torch.stack(val_losses)).item()
+                    print(f"Eval loss: {val_loss:.4f}")
+                    tracking.log(data={"val/loss": val_loss}, step=global_step)
 
             dist.barrier()
             # save checkpoint
