@@ -16,38 +16,31 @@ Generate responses given a dataset of prompts
 """
 
 import os
+from pprint import pprint
 
 import hydra
 import numpy as np
+import pandas as pd
 import ray
+from omegaconf import OmegaConf
+
+from verl import DataProto
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils.data_processor import build_tokenizer
+from verl.utils.model import compute_position_id_with_mask
+from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
 
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 # os.environ['TORCH_COMPILE_DISABLE'] = '1'
 
-import pandas as pd
-
-from verl import DataProto
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-from verl.utils.fs import copy_local_path_from_hdfs
-from verl.utils.hdfs_io import makedirs
-from verl.utils.model import compute_position_id_with_mask
-from verl.workers.fsdp_workers import ActorRolloutRefWorker
-
 
 @hydra.main(config_path="config", config_name="generation", version_base=None)
 def main(config):
-    from pprint import pprint
-
-    from omegaconf import OmegaConf
-
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-    local_path = copy_local_path_from_hdfs(config.model.path)
-    from verl.utils import hf_tokenizer
-
-    tokenizer = hf_tokenizer(local_path)
+    tokenizer = build_tokenizer(config.model.path)
 
     if config.rollout.temperature == 0.0:
         assert config.data.n_samples == 1, "When temperature=0, n_samples must be 1."
@@ -133,7 +126,7 @@ def main(config):
 
     # write to a new parquet
     output_dir = os.path.dirname(config.data.output_path)
-    makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     dataset.to_parquet(config.data.output_path)
 
     return output_text
