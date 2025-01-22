@@ -12,32 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 
 
 def get_gsm8k_data():
     # prepare test dataset
-    url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
-    local_folder = os.path.expanduser('~/verl-data/gsm8k/')
-    local_path = os.path.join(local_folder, 'train.parquet')
+    # url = "https://github.com/eric-haibin-lin/verl-data/raw/refs/heads/main/gsm8k/train.parquet"
+    local_folder = os.path.expanduser("~/verl-data/gsm8k/")
+    local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
 
 
 def test_rl_dataset():
-    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
     from verl.utils import hf_tokenizer
-    tokenizer = hf_tokenizer('deepseek-ai/deepseek-coder-1.3b-instruct')
+    from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+
+    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
     local_path = get_gsm8k_data()
-    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key='prompt', max_prompt_length=256)
+    dataset = RLHFDataset(parquet_files=local_path, tokenizer=tokenizer, prompt_key="prompt", max_prompt_length=256)
 
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=True, drop_last=True, collate_fn=collate_fn)
 
     a = next(iter(dataloader))
-
-    from verl import DataProto
 
     tensors = {}
     non_tensors = {}
@@ -48,9 +47,9 @@ def test_rl_dataset():
         else:
             non_tensors[key] = val
 
-    data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
+    # data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
 
-    data = dataset[0]['input_ids']
+    data = dataset[0]["input_ids"]
     output = tokenizer.batch_decode([data])[0]
-    print(f'type: type{output}')
-    print(f'\n\noutput: {output}')
+    print(f"type: type{output}")
+    print(f"\n\noutput: {output}")

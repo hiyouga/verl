@@ -1,6 +1,6 @@
 .PHONY: style quality
 
-check_dirs := scripts verl
+check_dirs := scripts tests verl setup.py
 
 quality:
 	ruff check $(check_dirs)
