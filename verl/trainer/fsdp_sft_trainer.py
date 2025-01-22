@@ -192,34 +192,34 @@ class FSDPSFTTrainer:
             optimizer=self.optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=total_steps
         )
 
-    def _compute_loss(self, batch):
-        loss_mask = batch.pop("loss_mask")[:, :-1].reshape(-1).cuda()
-        labels = batch["input_ids"][:, 1:].cuda()
-        output = self.fsdp_model(
+    def _compute_loss(self, batch: TensorDict):
+        loss_mask = batch.pop("loss_mask").cuda()
+        labels = batch["input_ids"].clone().cuda()
+        logits: torch.Tensor = self.fsdp_model(
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             position_ids=batch["position_ids"],
             use_cache=False,
-        )
-        logits = output.logits
-
+        ).logits
+        # Upcast to fp32 to avoid overflow
+        logits = logits.float()  # TODO: use fused ce
+        # Shift so that tokens < n predict n
         shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels.contiguous()
-        # Flatten the tokens
+        shift_labels = labels[..., 1:].contiguous()
+        loss_mask = loss_mask[..., 1:].contiguous()
         loss_fct = nn.CrossEntropyLoss(reduction="none")
+        # Flatten the tokens
         shift_logits = shift_logits.view(-1, self.model.config.vocab_size)
         shift_labels = shift_labels.view(-1)
-        # Enable model parallelism
-        shift_labels = shift_labels.to(shift_logits.device)
         loss = loss_fct(shift_logits, shift_labels)
         loss = loss * loss_mask
 
-        valid_tokens = torch.sum(loss_mask)
-        if self.config.data.balance_dp_token:
+        valid_tokens = loss_mask.sum()
+        if self.config.data.dp_loss_balancing:
             dist.all_reduce(valid_tokens)  # becomes total valid tokens in all ranks
             valid_tokens = valid_tokens / dist.get_world_size()
 
-        loss = torch.sum(loss) / valid_tokens
+        loss = loss.sum() / valid_tokens
         return loss
 
     def training_step(self, batch: TensorDict):

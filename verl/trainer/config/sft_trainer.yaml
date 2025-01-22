@@ -4,7 +4,7 @@ data:
   train_dataset: gsm8k
   val_dataset: gsm8k
   max_seq_len: 1024
-  balance_dp_token: false
+  dp_loss_balancing: false
   truncation: error
 model:
   model_path: Qwen/Qwen2-1.5B-Instruct
